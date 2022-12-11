@@ -1,0 +1,108 @@
+{#
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+#}
+
+<!DOCTYPE html>
+<html lang="en" class="not-showing-stats no-colors">
+  <head>
+    <meta charset="utf-8">
+    <title>Heron Admin</title>
+    <meta content="width=device-width, initial-scale=1.0, user-scalable=no" name="viewport">
+    <link rel="shortcut icon" href="{{ url_for('static', path='/img/logo54x54.png') }}" type="image/x-icon" >
+    <script src="{{ url_for('static', path='/js/html5-trunk.js') }}"></script>
+
+    <!-- bootstrap css -->
+    <link href="{{ url_for('static', path='/css/bootstrap.css') }}" rel="stylesheet">
+
+    <!-- custom css -->
+    <link href="{{ url_for('static', path='/css/main.css') }}" rel="stylesheet">
+
+    <link href="{{ url_for('static', path='/css/visstyle.css') }}" rel="stylesheet">
+
+    <script src="{{ url_for('static', path='/js/react.0.10.0.js') }}"></script>
+    <script src="{{ url_for('static', path='/js/JSXTransformer.0.10.0.js') }}"></script>
+    <script src="{{ url_for('static', path='/js/moment.min.2.8.3.js') }}"></script>
+    <script src="{{ url_for('static', path='/js/underscore-min.1.6.0.js') }}"></script>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', path='/js/jquery.min.js') }}"></script>
+    <script src="{{ url_for('static', path='/js/bootstrap.js') }}"></script>
+    <script src="{{ url_for('static', path='/js/jquery-ui-1.8.23.custom.min.js') }}"></script>
+
+    <script src="{{ url_for('static', path='/js/list.min.1.1.1.js') }}"></script>
+
+    <script type="text/jsx" src="{{ url_for('static', path='/js/common.js') }}" ></script>
+
+    <style type="text/css">
+      .logo-img{
+      width: 90px;
+      margin: 15px 0 15px 0;
+      font-size: 16px;
+      color: #f86665;
+      font-weight: 200;
+      float: left;
+      text-align: center;
+      cursor: pointer;
+      }
+      .logo {
+      width: 80px;
+      max-height: 30px;
+      margin: 15px 0 15px 0;
+      font-size: 16px;
+      color: #f86665;
+      font-weight: 200;
+      float: left;
+      text-align: center;
+      cursor: pointer;
+      }
+      .logo span {
+      color: white;
+      }
+    </style>
+  </head>
+
+
+  <body>
+    <!-- Main navigation start -->
+    <nav id="global-nav">
+      <div class="logo-img">
+        <img src="{{ url_for('static', path='/img/logo54x54.png') }}" alt="Heron">
+      </div>
+      <!-- <div class="logo">H<span>eron</span></div> -->
+      {% include "nav.html" %}
+    </nav>
+    <!-- Main navigation end -->
+
+    <!-- Main Container start -->
+    <div class="main-container">
+
+    <!-- Header start -->
+    <header>
+      <!-- page title -->
+      <div id="page-title" />
+    </header>
+    <!-- Header end -->
+      <!-- Dashboard wrapper start -->
+      <div class="dashboard-wrapper">
+        {% block content %}{% endblock %}
+      </div>
+      <!-- Dashboard wrapper end -->
+    </div>
+    <!-- Main Container end -->
+  </body>
+</html>

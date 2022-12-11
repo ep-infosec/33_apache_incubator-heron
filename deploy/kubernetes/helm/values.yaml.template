@@ -1,0 +1,146 @@
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing,
+#  software distributed under the License is distributed on an
+#  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+#  KIND, either express or implied.  See the License for the
+#  specific language governing permissions and limitations
+#  under the License.
+
+# Default values for heron.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Heron image to use
+image: apache/heron:VERSION
+
+# Heron image pull policy
+imagePullPolicy: IfNotPresent
+
+# Number of replicas for the job binary in bookkeeper
+jobReplicas: 1
+
+apiServer:
+  # amount of memory to provide for API server
+  memory: 512M
+  nodePort:
+    enabled: false
+    # port can be left empty and Kubernetes will assign a random NodePort
+    port:
+
+tracker:
+  nodePort:
+    enabled: false
+    # port can be left empty and Kubernetes will assign a random NodePort
+    port:
+
+ui:
+  nodePort:
+    enabled: false
+    # port can be left empty and Kubernetes will assign a random NodePort
+    port:
+  # set to `-` to set base-url to the default k8s proxy URL
+  # set to `null` to remove the use of base_url
+  url: "-"
+
+# Can be EQUAL_TO_LIMIT or NOT_SET
+topologyResourceRequestMode: EQUAL_TO_LIMIT
+
+# Topologies uploader
+uploader:
+  class: dlog # s3
+  s3Bucket: ""
+  s3PathPrefix: ""
+  s3AccessKey: ""
+  s3SecretKey: ""
+  s3Region: ""
+
+# Packing algorithms
+packing: RoundRobin # ResourceCompliantRR, FirstFitDecreasing
+
+# Support for ConfigMap mounted PodTemplates
+disablePodTemplates: false
+
+# Support for Voume specification from CLI input
+disableVolumesFromCLI: false
+
+
+# Number of replicas for zookeeper
+zkReplicas: 3
+
+
+bookkeeper:
+  image: apache/bookkeeper:4.14.5
+  imagePullPolicy: IfNotPresent
+
+  # set storageClassName to "none" to not use storageClassName
+  storageClassName: "none"
+
+  replicas: 3
+  createReplicas: true
+  useStatefulSet: true
+  affinityPods: false
+  useVolumeClaimTemplate: true
+  useHostNameAsBookieID: true
+  tolerateUnreadyEndpoints: true
+
+  prometheus:
+    enabled: false
+
+  resources:
+    cpuMin: 100m
+    cpuMax: 250m
+    heapMemory: 512M
+    directMemory: 256M
+    readCacheSize: 32
+    writeCacheSize: 32
+
+  useHostPath: false
+  journal:
+    capacity: 5G
+    hostPath: '/opt/bookkeeper/joural-disk'
+  ledgers:
+    capacity: 15G
+    hostPath: '/opt/bookkeeper/ledgers-disk'
+
+
+zookeeper:
+  enabled: true
+  minAvailable: 1
+  replicas: 3
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2G
+    limits:
+      cpu: 1
+      memory: 4G
+  heap: 1G
+  storage: 2G
+  serverPort: 2888
+  leaderElectionPort: 3888
+  clientPort: 2181
+  tickTimeMs: 2000
+  initTicks: 10
+  syncTicks: 5
+  clientCnxns: 60
+  snapRetain: 3
+  purgeHours: 1
+  probeInitialDelaySeconds: 15
+  probeTimeoutSeconds: 5
+  antiAffinity: "hard"
+  logLevel: "INFO"
+  security:
+    enabled: false
+    runAsUser: 1000
+    fsGroup: 1000
+  # set storageClassName to "none" to not use storageClassName
+  storageClassName: "none"

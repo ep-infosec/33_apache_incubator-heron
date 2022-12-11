@@ -1,0 +1,84 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+# 
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+SECONDARIES=0
+NET_PREFIX="192.168.56."
+
+NODES={"primary" => NET_PREFIX + "5"}
+(0..SECONDARIES-1).each do |i| NODES["secondary#{i}"] = NET_PREFIX + (6 + i).to_s end
+
+# create hosts
+File.open('.vagrant/hosts', 'w') do |file|
+  file.write("127.0.0.1\tlocalhost\n")
+  file.write("\n# cluster nodes\n")
+  NODES.each do |name, ip| file.write("#{ip}\t#{name}\n") end
+end
+
+Vagrant.configure(2) do |config|
+  # config.vm.box = "ubuntu/focal64"
+  config.vm.box = "bento/ubuntu-20.04"
+  config.vm.synced_folder "../", "/vagrant"
+  config.vm.boot_timeout = 600
+  # heron-ui
+  config.vm.network "forwarded_port", guest: 8889, host: 8889
+
+  config.vm.define "primary" do |primary|
+    primary.vm.provider "virtualbox" do |v|
+      host = RbConfig::CONFIG['host_os']
+      mem_ratio = 1.0/2
+      cpu_exec_cap = 75
+      # Give VM 1/2 system memory & access to all cpu cores on the host
+      if host =~ /darwin/
+        cpus = `sysctl -n hw.ncpu`.to_i
+        # sysctl returns Bytes and we need to convert to MB
+        mem = `sysctl -n hw.memsize`.to_f / 1024**2 * mem_ratio
+      elsif host =~ /linux/
+        cpus = `nproc`.to_i
+        # meminfo shows KB and we need to convert to MB
+        mem = `grep 'MemTotal' /proc/meminfo | sed -E -e 's/MemTotal:\\s+//' -e 's/ kB//'`.to_i / 1024 * mem_ratio
+      else # Windows folks
+        cpus = `wmic cpu get NumberOfCores`.split("\n")[2].to_i
+        mem = `wmic OS get TotalVisibleMemorySize`.split("\n")[2].to_i / 1024 * mem_ratio
+      end
+      mem = mem.to_i
+      v.customize ["modifyvm", :id, "--cpuexecutioncap", cpu_exec_cap]
+      v.memory = mem
+      v.cpus = cpus
+    end
+
+    primary.vm.hostname = "primary"
+    primary.vm.network :private_network, ip: NODES["primary"]
+
+    # NB: Apache Mesos requires the use of "master"/"slave"
+    primary.vm.provision "shell", path: "init.sh", args: "master"
+  end
+
+  (0..SECONDARIES-1).each do |i|
+    config.vm.define "secondary#{i}" do |secondary|
+      secondary.vm.provider "virtualbox" do |v|
+        v.memory = 2048
+        v.cpus = 2
+      end
+
+      secondary.vm.hostname = "secondary#{i}"
+      secondary.vm.network :private_network, ip: NODES[secondary.vm.hostname]
+
+      # NB: Apache Mesos requires the use of "master"/"slave"
+      secondary.vm.provision "shell", path: "init.sh", args: "slave"
+    end
+  end
+end

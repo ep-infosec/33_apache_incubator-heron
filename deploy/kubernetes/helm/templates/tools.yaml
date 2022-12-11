@@ -1,0 +1,335 @@
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing,
+#  software distributed under the License is distributed on an
+#  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+#  KIND, either express or implied.  See the License for the
+#  specific language governing permissions and limitations
+#  under the License.
+
+{{- $platform := .Values.platform -}}
+{{- $jobReplicas := .Values.jobReplicas -}}
+{{- $defaultUrl := (printf "/api/v1/namespaces/%s/services/%s-ui:8889/proxy" .Release.Namespace .Release.Name) -}}
+{{- $apiServerMemory := .Values.apiServer.memory }}
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-tools-config
+data:
+  HERON_APISERVER_MEM_MIN: {{ $apiServerMemory | quote }}
+  HERON_APISERVER_MEM_MAX: {{ $apiServerMemory | quote }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-tools
+  labels:
+    app: {{ .Release.Name }}-tools
+    chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-tools
+      release: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-tools
+        release: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-apiserver
+      terminationGracePeriodSeconds: 0
+      tolerations:
+        - key: "node.kubernetes.io/not-ready"
+          operator: "Equal"
+          effect: "NoExecute"
+          tolerationSeconds: 10
+        - key: "node.kubernetes.io/unreachable"
+          operator: "Equal"
+          effect: "NoExecute"
+          tolerationSeconds: 10
+      initContainers:
+        # Wait until the zookeeper pods are up and running
+        - name: heron-tools-init-container
+          image: {{ .Values.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command:
+            - sh
+            - -c
+            - /opt/zookeeper/scripts/wait-for-zookeeper.sh {{ .Release.Name }}-zookeeper {{ .Values.zookeeper.clientPort }}
+        - name: init-heron-apiserver
+          image: {{ .Values.bookkeeper.image }}
+          command: ['sh', '-c', '/opt/bookkeeper/bin/dlog admin bind -l /ledgers -s {{ .Release.Name }}-zookeeper:{{ .Values.zookeeper.clientPort }} -c distributedlog://{{ .Release.Name }}-zookeeper:{{ .Values.zookeeper.clientPort }}/heron']
+      containers:
+        - name: heron-tracker
+          image: {{ .Values.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "200M"
+            limits:
+              cpu: "400m"
+              memory: "512M"
+          ports:
+            - containerPort: 8888
+              name: api-port
+          command: ["sh", "-c"]
+          args:
+            - >-
+              heron-tracker
+              --type=zookeeper
+              --name={{ .Release.Name }}
+              --hostport={{ .Release.Name }}-zookeeper:{{ .Values.zookeeper.clientPort }}
+              --rootpath="/heron" 
+        - name: heron-ui
+          image: {{ .Values.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "200M"
+            limits:
+              cpu: "400m"
+              memory: "512M"
+          ports:
+            - containerPort: 8889
+              name: app-port
+          command: ["sh", "-c"]
+          args:
+            - >-
+              heron-ui
+              --port=8889
+              {{- if not (kindIs "invalid" .Values.ui.url) }}
+              --base-url={{ eq .Values.ui.url "-" | ternary $defaultUrl .Values.ui.url }}
+              {{- end }}
+        - name: heron-apiserver
+          image: {{ .Values.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          resources:
+            requests:
+              cpu: "250m"
+            limits:
+              cpu: "500m"
+          command: ["sh", "-c"]
+          args:
+            - >-
+              heron-apiserver
+              --base-template kubernetes
+              --cluster {{ .Release.Name }}
+              -D heron.statemgr.connection.string={{ .Release.Name }}-zookeeper:2181
+              -D heron.kubernetes.scheduler.uri=http://localhost:8001
+              -D heron.kubernetes.scheduler.namespace={{ .Release.Namespace }}
+              -D heron.executor.docker.image={{ .Values.image }}
+              -D heron.statefulstorage.classname=org.apache.heron.statefulstorage.dlog.DlogStorage
+              -D heron.statefulstorage.dlog.namespace.uri=distributedlog://{{ .Release.Name }}-zookeeper:{{ .Values.zookeeper.clientPort }}/heron
+              {{- if eq .Values.uploader.class "dlog" }}
+              -D heron.class.uploader=org.apache.heron.uploader.dlog.DLUploader
+              -D heron.uploader.dlog.topologies.num.replicas={{ $jobReplicas }}
+              -D heron.uploader.dlog.topologies.namespace.uri=distributedlog://{{ .Release.Name }}-zookeeper:{{ .Values.zookeeper.clientPort }}/heron
+              {{- else if eq .Values.uploader.class "s3" }}
+              -D heron.class.uploader=org.apache.heron.uploader.s3.S3Uploader
+              -D heron.uploader.s3.bucket={{ .Values.uploader.s3Bucket }}
+              -D heron.uploader.s3.path_prefix={{ .Values.uploader.s3PathPrefix }}
+              -D heron.uploader.s3.access_key={{ .Values.uploader.s3AccessKey }}
+              -D heron.uploader.s3.secret_key={{ .Values.uploader.s3SecretKey }}
+              -D heron.uploader.s3.region={{ .Values.uploader.s3Region }}
+              {{- end }}
+              {{- if eq .Values.packing "RoundRobin" }}
+              -D heron.class.packing.algorithm=org.apache.heron.packing.roundrobin.RoundRobinPacking
+              -D heron.class.repacking.algorithm=org.apache.heron.packing.roundrobin.RoundRobinPacking
+              {{- else if eq .Values.packing "ResourceCompliantRR" }}
+              -D heron.class.packing.algorithm=org.apache.heron.packing.roundrobin.ResourceCompliantRRPacking
+              -D heron.class.repacking.algorithm=org.apache.heron.packing.roundrobin.ResourceCompliantRRPacking
+              {{- else if eq .Values.packing "FirstFitDecreasing" }}
+              -D heron.class.packing.algorithm=org.apache.heron.packing.binpacking.FirstFitDecreasingPacking
+              -D heron.class.repacking.algorithm=org.apache.heron.packing.binpacking.FirstFitDecreasingPacking
+              {{- end }}
+              -D heron.kubernetes.resource.request.mode={{ .Values.topologyResourceRequestMode }}
+              -D heron.kubernetes.pod.template.disabled={{ .Values.disablePodTemplates }}
+              -D heron.kubernetes.volume.from.cli.disabled={{ .Values.disableVolumesFromCLI }}
+          envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}-tools-config
+
+---
+##
+## Service to expose the heron-ui
+##
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-ui
+  labels:
+    app: {{ .Release.Name }}-tools
+    chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  ports:
+    - port: 8889
+      targetPort: 8889
+      protocol: TCP
+      {{- if .Values.ui.nodePort.enabled }}
+      nodePort: {{ .Values.ui.nodePort.port }}
+      {{- end }}
+  {{- if .Values.ui.nodePort.enabled }}
+  type: NodePort
+  {{- else }}
+  type: ClusterIP
+  {{- end }}      
+  selector:
+    app: {{ .Release.Name }}-tools
+    release: {{ .Release.Name }}
+
+---
+##
+## Service to expose the heron-tracker
+##
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-tracker
+  labels:
+    app: {{ .Release.Name }}-tools
+    chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  ports:
+    - port: 8888
+      targetPort: 8888
+      protocol: TCP
+      {{- if .Values.tracker.nodePort.enabled }}
+      nodePort: {{ .Values.tracker.nodePort.port }}
+      {{- end }}
+  {{- if .Values.tracker.nodePort.enabled }}
+  type: NodePort
+  {{- else }}
+  type: ClusterIP
+  {{- end }}
+  selector:
+    app: {{ .Release.Name }}-tools
+    release: {{ .Release.Name }}
+
+---
+##
+## Service to expose the heron-apiserver
+##
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-apiserver
+  labels:
+    app: {{ .Release.Name }}-tools
+    chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  ports:
+    - port: 9000
+      targetPort: 9000
+      protocol: TCP
+      {{- if .Values.apiServer.nodePort.enabled }}
+      nodePort: {{ .Values.apiServer.nodePort.port }}
+      {{- end }}
+  {{- if .Values.apiServer.nodePort.enabled }}
+  type: NodePort
+  {{- else }}
+  type: ClusterIP
+  {{- end }}
+  selector:
+    app: {{ .Release.Name }}-tools
+    release: {{ .Release.Name }}
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-apiserver
+  namespace: {{ .Release.Namespace }}
+  labels:
+    k8s-app: {{ .Release.Name }}-apiserver
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-apiserver
+  labels:
+    app: {{ .Release.Name }}-apiserver
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Release.Name }}-apiserver
+subjects:
+- kind: ServiceAccount
+  name: {{ .Release.Name }}-apiserver
+  namespace: {{ .Release.Namespace }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-apiserver
+rules:
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+  - deletecollection
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - deletecollection
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - deletecollection
